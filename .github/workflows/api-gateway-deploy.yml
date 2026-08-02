@@ -30,7 +30,8 @@ jobs:
     name: Deploy AM API Gateway → ${{ github.event.inputs.environment }}
     uses: AM-Portfolio/am-pipelines/.github/workflows/central-deploy.yml@main
     with:
-      service_name: "am-asrax-proxy"
+      # NEW release name — existing cluster am-asrax-proxy is untouched
+      service_name: "am-api-gateway"
       working_directory: "api-gateway"
       language: "python"
       environment: ${{ github.event.inputs.environment }}

@@ -1,0 +1,16 @@
+# Local amctl identity — NEW monorepo package (not am-asrax-proxy)
+name: am-api-gateway
+release: am-api-gateway
+image: ghcr.io/am-portfolio/am-api-gateway
+runtime: python
+language: python
+dockerfile: Dockerfile
+context: .
+github:
+  repo: AM-Portfolio/am-gateways
+  deploy_workflow: api-gateway-deploy.yml
+  service: am-api-gateway
+  ref: main
+deploy:
+  via: actions
+  rebuild: on-change

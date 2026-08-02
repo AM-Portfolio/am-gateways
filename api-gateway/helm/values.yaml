@@ -1,5 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# am-asrax-proxy — Base Helm values (universal-chart)
+# am-api-gateway (am-gateways/api-gateway) — Base Helm values (universal-chart)
+# NEW image/release — does not replace the existing am-asrax-proxy deployment.
 # Environment-specific values override these in values.<env>.yaml
 #
 # SECRET MANAGEMENT RULE:
@@ -21,7 +22,7 @@ global:
     serviceAccountName: "am-backend-sa"
 
 image:
-  repository: am-asrax-proxy
+  repository: am-api-gateway
 
 port: 8080
 language: python
