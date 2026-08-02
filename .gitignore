@@ -8,3 +8,9 @@
 .env
 .env.*
 !.env.example
+credentials.env
+**/credentials.env
+kubeconfig*
+**/kubeconfig*
+*.pem
+*.key
