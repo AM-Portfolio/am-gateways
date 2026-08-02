@@ -1,0 +1,9 @@
+# am-ai-gateway agent registry (coarse routing)
+agents:
+  finance:
+    id: finance
+    displayName: Finance
+    # L3 lives in am-agents — do not redefine here
+    baseUrl: "${FINANCE_AGENT_BASE_URL:-http://localhost:8101}"
+    chatPath: /api/v1/ai/chat
+    healthPath: /health

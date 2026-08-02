@@ -1,0 +1,65 @@
+# am-asrax-proxy — Production Environment Overrides
+# Vault paths verified against vps_vault_full_backup_20260602_005102.json
+# Note: prod am-api-gateway Vault path (apps/prod/services/am-api-gateway) exists
+# with JWT_SECRET_KEY + SECRET_KEY. OIDC keys come from am-identity path.
+
+environment: production
+replicaCount: 3
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 2Gi
+  requests:
+    cpu: 1000m
+    memory: 1Gi
+
+probes:
+  port: 8080
+  startup:
+    path: "/health"
+    failureThreshold: 30
+    periodSeconds: 10
+  liveness:
+    path: "/health"
+  readiness:
+    path: "/health"
+
+ingress:
+  enabled: true
+  className: "traefik"
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      am-apps-prod-prod-global-cors@kubernetescrd
+  hosts:
+    - host: am.munish.org
+      paths:
+        - path: /am
+          pathType: Prefix
+        - path: /v1/diagnostics
+          pathType: Prefix
+
+# ── Non-secret env vars ───────────────────────────────────────────────────────
+env:
+  LOG_LEVEL: "INFO"
+  ENVIRONMENT: "production"
+
+  # Redis DB index for gateway
+  REDIS_DB: "3"
+
+  # ALLOWED_ORIGINS — not in prod Vault path, set here
+  ALLOWED_ORIGINS: "https://am.munish.org,https://am.asrax.in"
+
+# ── Vault secret paths ────────────────────────────────────────────────────────
+# All environments use the 'apps' KV mount for consistency.
+vault:
+  enabled: true
+  secretPaths:
+    proxy:
+      path: "apps/data/prod/services/am-asrax-proxy"
+    identity:
+      path: "apps/data/prod/services/am-identity"
+    redis:
+      path: "apps/data/prod/infra/redis"

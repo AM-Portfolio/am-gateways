@@ -1,0 +1,54 @@
+# am-ai-gateway (folder: mcp-gateway) — universal-chart values for amctl / CI
+global:
+  image:
+    registry: ghcr.io/am-portfolio
+    pullPolicy: Always
+    imagePullSecrets:
+      - name: regcred
+  vault:
+    enabled: false
+
+fullnameOverride: am-ai-gateway
+nameOverride: am-ai-gateway
+
+image:
+  repository: am-ai-gateway
+
+replicaCount: 1
+language: python
+port: 8120
+
+service:
+  port: 8120
+
+entrypoint: "exec uvicorn app.main:app --host 0.0.0.0 --port 8120"
+
+env:
+  FINANCE_AGENT_BASE_URL: "http://am-fin-agent.am-apps-dev.svc.cluster.local:8080"
+  FINANCE_AGENT_CHAT_PATH: "/api/v1/ai/chat"
+  CORS_ORIGINS: "https://am-dev.asrax.in,http://localhost:9000,http://127.0.0.1:9000"
+
+probes:
+  port: 8120
+  liveness:
+    path: /health
+    initialDelaySeconds: 15
+    periodSeconds: 20
+  readiness:
+    path: /health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+ingress:
+  enabled: false
+
+vault:
+  enabled: false

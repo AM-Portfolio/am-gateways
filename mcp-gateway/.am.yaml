@@ -1,0 +1,17 @@
+# Local amctl identity — matches CI image_name / K8s release
+name: am-ai-gateway
+release: am-ai-gateway
+image: ghcr.io/am-portfolio/am-ai-gateway
+runtime: python
+language: python
+dockerfile: Dockerfile
+context: .
+github:
+  repo: AM-Portfolio/am-gateways
+  deploy_workflow: mcp-gateway-deploy.yml
+  service: am-ai-gateway
+  ref: main
+deploy:
+  # am-gateways has no remote yet — laptop Helm against VPS kubeconfig
+  via: helm
+  rebuild: on-change

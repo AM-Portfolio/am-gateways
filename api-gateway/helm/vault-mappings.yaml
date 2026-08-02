@@ -1,0 +1,59 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# am-asrax-proxy — Vault secret mappings
+#
+# All paths use the DEDICATED proxy service path: apps/data/<env>/services/am-asrax-proxy
+# This is NOT am-api-gateway — they are separate services with separate Vault paths.
+#
+# Vault paths per environment (resolved via values.<env>.yaml):
+#   dev     → apps/data/dev/services/am-asrax-proxy
+#   preprod → apps/data/preprod/services/am-asrax-proxy
+#   prod    → apps/data/prod/services/am-asrax-proxy
+#
+# Key names verified against vps_vault_full_backup_20260602_005102.json
+# where applicable. New keys (INTERNAL_GATEWAY_SECRET, OIDC_AUDIENCE) must
+# be seeded in Vault — see README for bootstrap commands.
+# ─────────────────────────────────────────────────────────────────────────────
+
+vault:
+  secretPaths:
+
+    # ── Proxy-specific secrets ─────────────────────────────────────────────
+    # Vault path: apps/data/<env>/services/am-asrax-proxy  (DEDICATED — do not reuse am-api-gateway)
+    # Seed command (run once per env):
+    #   vault kv put apps/<env>/services/am-asrax-proxy \
+    #     JWT_SECRET=<32-char-random> \
+    #     SECRET_KEY=<32-char-random> \
+    #     INTERNAL_GATEWAY_SECRET=<32-char-random> \
+    #     ALLOWED_ORIGINS=<comma-separated-origins>
+    proxy:
+      mappings:
+        JWT_SECRET: "JWT_SECRET"
+        SECRET_KEY: "SECRET_KEY"
+        INTERNAL_GATEWAY_SECRET: "INTERNAL_GATEWAY_SECRET"
+        ALLOWED_ORIGINS: "ALLOWED_ORIGINS"
+
+    # ── Identity / OIDC secrets ──────────────────────────────────────────────
+    # Vault path: apps/data/<env>/services/am-identity  (shared with other services)
+    # Keys verified from backup — exact casing matters.
+    # Realm per environment (stored under OIDC_ISSUER/OIDC_JWKS_URL keys):
+    #   dev     → am-dev-realm
+    #   preprod → am-realm
+    #   prod    → am-realm
+    # Seed OIDC_AUDIENCE if not present:
+    #   vault kv patch apps/<env>/services/am-identity OIDC_AUDIENCE=account
+    identity:
+      mappings:
+        OIDC_ISSUER: "OIDC_ISSUER"
+        OIDC_JWKS_URL: "OIDC_JWKS_URL"
+        OIDC_AUDIENCE: "OIDC_AUDIENCE"
+
+    # ── Redis infra credentials ──────────────────────────────────────────────
+    # Vault path: apps/data/<env>/infra/redis  (shared infra path)
+    # Keys verified from backup: host, port, password
+    # No username — Redis uses password-only auth (no ACL user configured).
+    # REDIS_DB is NOT a secret — set in values.<env>.yaml (gateway uses DB 3).
+    redis:
+      mappings:
+        REDIS_HOST: "host"
+        REDIS_PORT: "port"
+        REDIS_PASSWORD: "password"

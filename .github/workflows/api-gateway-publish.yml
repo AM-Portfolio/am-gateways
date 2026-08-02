@@ -1,0 +1,29 @@
+name: API Gateway Publish
+
+on:
+  push:
+    branches: ["main", "develop", "fix/**", "hotfix/**", "feature/**"]
+    paths:
+      - "api-gateway/**"
+  pull_request:
+    branches: ["main", "develop", "fix/**", "hotfix/**", "feature/**"]
+    paths:
+      - "api-gateway/**"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish AM API Gateway
+    permissions:
+      contents: read
+      packages: write
+    uses: AM-Portfolio/am-pipelines/.github/workflows/central-build-publish.yml@main
+    with:
+      language: "python"
+      working_directory: "api-gateway"
+      image_name: "am-asrax-proxy"
+      build_context: "."
+      preprod_namespace: "am-apps-preprod"
+      prod_namespace: "am-apps-prod"
+      deploy_prod: true
+    secrets: inherit

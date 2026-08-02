@@ -1,0 +1,75 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# am-asrax-proxy — Base Helm values (universal-chart)
+# Environment-specific values override these in values.<env>.yaml
+#
+# SECRET MANAGEMENT RULE:
+#   - All secrets come from Vault via vault-mappings.yaml
+#   - Vault paths are defined per-environment in values.<env>.yaml
+#   - Never set secrets (passwords, keys, tokens) here
+# ─────────────────────────────────────────────────────────────────────────────
+
+global:
+  image:
+    registry: ghcr.io/am-portfolio
+    pullPolicy: Always
+    imagePullSecrets:
+      - name: regcred
+  vault:
+    enabled: true
+    role: "am-backend-role"
+    authPath: "auth/kubernetes"
+    serviceAccountName: "am-backend-sa"
+
+image:
+  repository: am-asrax-proxy
+
+port: 8080
+language: python
+entrypoint: "exec uvicorn main:app --host 0.0.0.0 --port 8080"
+
+security:
+  automountServiceAccountToken: true
+
+config: {}
+
+# ─── Static (non-secret) env vars ────────────────────────────────────────────
+# Only infrastructure topology and tuning values go here.
+# Secrets (passwords, keys, OIDC URLs, Redis credentials) come from Vault.
+env:
+  LOG_FORMAT: "json"
+  LOG_LEVEL: "INFO"
+  TZ: "UTC"
+
+  # ── Token & JWKS cache TTLs (tuning — not secrets) ────────────────────────
+  JWKS_CACHE_TTL_SECONDS: "3600"
+  TOKEN_CACHE_MAX_TTL_SECONDS: "300"
+  TOKEN_CACHE_MIN_REMAINING_TTL: "90"
+
+  # ── Cluster networking — Traefik pod CIDR for trusted IP extraction ────────
+  CLUSTER_CIDR: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+  # ── Redis — host/port are stable across envs; credentials come from Vault ──
+  # Vault path: apps/data/<env>/infra/redis  (keys: host, port, password)
+  # See vault-mappings.yaml → redis.mappings
+  REDIS_HOST: "redis.infra.svc.cluster.local"
+  REDIS_PORT: "6379"
+  # REDIS_DB is set in values.<env>.yaml (not a secret, but env-specific)
+  # REDIS_PASSWORD → from Vault (redis.password)
+
+  # ── OIDC/Keycloak — ALL values come from Vault, none set here ─────────────
+  # Vault path: apps/data/<env>/services/am-identity
+  # Keys mapped: OIDC_ISSUER, OIDC_JWKS_URL, OIDC_AUDIENCE
+  # Realm per env:
+  #   dev     → am-dev-realm
+  #   preprod → am-realm  (NOTE: backup shows preprod also uses am-realm, not am-preprod-realm)
+  #   prod    → am-realm
+  # Gateway fails fast (503) if OIDC_JWKS_URL is missing — no silent fallback.
+
+  # ── Downstream service URLs (internal K8s DNS — not secrets) ──────────────
+  TRADE_SERVICE_URL: "http://am-trade-management-service:8080"
+  PORTFOLIO_SERVICE_URL: "http://am-portfolio:8080"
+  MARKET_DATA_SERVICE_URL: "http://am-market-data:8080"
+  DOCUMENT_PROCESSOR_URL: "http://am-document-processor:8080"
+  SUBSCRIPTION_SERVICE_URL: "http://am-subscription:8080"
+  NOTIFICATION_SERVICE_URL: "http://am-notification:8080"
+  ANALYSIS_SERVICE_URL: "http://am-analysis:8080"

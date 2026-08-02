@@ -1,0 +1,49 @@
+name: Manual Deploy — AM AI Gateway
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Select Image Tag"
+        required: true
+        default: "latest"
+        type: choice
+        options:
+          - latest
+          - custom
+      custom_tag:
+        description: "If 'custom' selected, enter tag here"
+        required: false
+        type: string
+      environment:
+        description: "Target Environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - preprod
+          - prod
+
+jobs:
+  deploy:
+    name: Deploy AM AI Gateway → ${{ github.event.inputs.environment }}
+    uses: AM-Portfolio/am-pipelines/.github/workflows/central-deploy.yml@main
+    with:
+      service_name: "am-ai-gateway"
+      working_directory: "mcp-gateway"
+      language: "python"
+      environment: ${{ github.event.inputs.environment }}
+      image_tag: >-
+        ${{
+          github.event.inputs.image_tag == 'custom'
+            && github.event.inputs.custom_tag
+            || github.event.inputs.image_tag
+        }}
+      namespace: >-
+        ${{
+          github.event.inputs.environment == 'prod' && 'am-apps-prod'
+          || github.event.inputs.environment == 'preprod' && 'am-apps-preprod'
+          || 'am-apps-dev'
+        }}
+    secrets: inherit

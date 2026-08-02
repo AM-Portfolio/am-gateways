@@ -1,0 +1,8 @@
+environment: dev
+replicaCount: 1
+
+env:
+  APP_ENV: dev
+  FINANCE_AGENT_BASE_URL: "http://am-fin-agent.am-apps-dev.svc.cluster.local:8080"
+  FINANCE_AGENT_CHAT_PATH: "/api/v1/ai/chat"
+  CORS_ORIGINS: "https://am-dev.asrax.in,http://localhost:9000,http://127.0.0.1:9000"

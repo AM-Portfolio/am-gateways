@@ -1,0 +1,10 @@
+.DS_Store
+**/__pycache__/
+**/.pytest_cache/
+**/.venv/
+**/node_modules/
+**/target/
+*.pyc
+.env
+.env.*
+!.env.example

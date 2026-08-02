@@ -1,0 +1,65 @@
+# am-asrax-proxy — Dev Environment Overrides
+# Vault paths verified against vps_vault_full_backup_20260602_005102.json
+
+environment: dev
+replicaCount: 1
+
+service:
+  port: 8080
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+probes:
+  port: 8080
+  startup:
+    path: "/router/health"
+    failureThreshold: 30
+    periodSeconds: 10
+  liveness:
+    path: "/router/health"
+  readiness:
+    path: "/router/health"
+
+ingress:
+  enabled: true
+  className: "traefik"
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      am-apps-dev-dev-global-cors@kubernetescrd
+  hosts:
+    - host: am-dev.asrax.in
+      paths:
+        - path: /router
+          pathType: Prefix
+        - path: /subscriptions
+          pathType: Prefix
+
+# ── Non-secret env vars (safe to put in values.yaml) ─────────────────────────
+env:
+  LOG_LEVEL: "DEBUG"
+  ENVIRONMENT: "dev"
+
+  # Redis DB index for gateway (Novu=2, gateway=3, default=0)
+  REDIS_DB: "3"
+
+  # ALLOWED_ORIGINS for dev — not in Vault dev path, so set here
+  ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:9000,https://am-dev.asrax.in"
+
+# ── Vault secret paths (verified from backup) ─────────────────────────────────
+vault:
+  enabled: true
+  secretPaths:
+    proxy:
+      path: "apps/data/dev/services/am-asrax-proxy"
+    identity:
+      path: "apps/data/dev/services/am-identity"
+    redis:
+      path: "apps/data/dev/infra/redis"
