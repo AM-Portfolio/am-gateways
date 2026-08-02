@@ -4,7 +4,7 @@ Monorepo for L2 edge services. Folder name ≠ K8s/image name.
 
 | Deploy / image | Folder | Purpose |
 |----------------|--------|---------|
-| **am-api-gateway** (new GHCR image) | `api-gateway/` | Product REST edge — **does not replace** legacy `am-asrax-proxy` |
+| **am-gateways-api** (GHCR) | `api-gateway/` | Product REST edge — **new**; does not replace legacy `am-asrax-proxy` or `am-api-gateway` (am-auth) |
 | **am-ai-gateway** | `mcp-gateway/` | AI chat edge → finance agent |
 
 ## Layout

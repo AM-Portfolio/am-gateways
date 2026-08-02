@@ -22,7 +22,7 @@ global:
     serviceAccountName: "am-backend-sa"
 
 image:
-  repository: am-api-gateway
+  repository: am-gateways-api
 
 port: 8080
 language: python

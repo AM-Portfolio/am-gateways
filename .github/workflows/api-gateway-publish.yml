@@ -21,8 +21,8 @@ jobs:
     with:
       language: "python"
       working_directory: "api-gateway"
-      # NEW package for am-gateways monorepo — do not reuse am-asrax-proxy
-      image_name: "am-api-gateway"
+      # NEW package owned by this repo — do not reuse am-asrax-proxy or am-api-gateway (am-auth)
+      image_name: "am-gateways-api"
       build_context: "."
       preprod_namespace: "am-apps-preprod"
       prod_namespace: "am-apps-prod"
