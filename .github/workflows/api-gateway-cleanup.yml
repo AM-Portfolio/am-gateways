@@ -10,7 +10,7 @@ on:
 
 jobs:
   cleanup:
-    name: Delete am-gateways-api image tag — ${{ github.event.inputs.tag }}
+    name: Delete am-api-gateway image tag — ${{ github.event.inputs.tag }}
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -18,7 +18,7 @@ jobs:
       - name: Delete container image tag
         uses: actions/delete-package-versions@v5
         with:
-          package-name: "am-gateways-api"
+          package-name: "am-api-gateway"
           package-type: "container"
           min-versions-to-keep: 5
           delete-only-pre-release-versions: "false"

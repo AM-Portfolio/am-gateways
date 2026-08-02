@@ -1,8 +1,8 @@
-# Local amctl identity — NEW GHCR package for am-gateways monorepo
-# Does not use am-asrax-proxy (legacy) or am-api-gateway (owned by am-auth).
-name: am-gateways-api
-release: am-gateways-api
-image: ghcr.io/am-portfolio/am-gateways-api
+# Local amctl identity — am-api-gateway (folder: api-gateway)
+# Legacy am-asrax-proxy stays on its own repo/deploy and is not replaced.
+name: am-api-gateway
+release: am-api-gateway
+image: ghcr.io/am-portfolio/am-api-gateway
 runtime: python
 language: python
 dockerfile: Dockerfile
@@ -10,7 +10,7 @@ context: .
 github:
   repo: AM-Portfolio/am-gateways
   deploy_workflow: api-gateway-deploy.yml
-  service: am-gateways-api
+  service: am-api-gateway
   ref: main
 deploy:
   via: actions
