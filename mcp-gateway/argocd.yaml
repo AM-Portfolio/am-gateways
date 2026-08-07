@@ -8,7 +8,7 @@ source:
   path: mcp-gateway/argocd.yaml
 chart:
   repoURL: https://github.com/AM-Portfolio/am-pipelines.git
-  path: mcp-gateway/argocd.yaml
+  path: helm/universal-chart
   targetRevision: main
 helm:
   releaseName: am-ai-gateway
