@@ -1,0 +1,21 @@
+apiVersion: am.argocd/v1
+kind: ServiceDeploy
+service: am-ai-gateway
+enabled: true
+owners: gateways
+source:
+  repo: am-gateways
+  path: mcp-gateway/argocd.yaml
+chart:
+  repoURL: https://github.com/AM-Portfolio/am-pipelines.git
+  path: mcp-gateway/argocd.yaml
+  targetRevision: main
+helm:
+  releaseName: am-ai-gateway
+  valuesPath: mcp-gateway/helm
+valuesRepoURL: https://github.com/AM-Portfolio/am-gateways.git
+valuesTargetRevision: main
+envs:
+  prod:
+    enabled: true
+    namespace: am-apps-prod

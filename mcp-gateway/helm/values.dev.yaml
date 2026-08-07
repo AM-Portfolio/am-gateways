@@ -5,4 +5,22 @@ env:
   APP_ENV: dev
   FINANCE_AGENT_BASE_URL: "http://am-fin-agent.am-apps-dev.svc.cluster.local:8080"
   FINANCE_AGENT_CHAT_PATH: "/api/v1/ai/chat"
+  FINANCE_AGENT_MCP_PATH: "/ai/mcp"
   CORS_ORIGINS: "https://am-dev.asrax.in,http://localhost:9000,http://127.0.0.1:9000"
+
+ingress:
+  enabled: true
+  className: "traefik"
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    # Beat am-modern-ui PathPrefix `/` catch-all for /ai/*
+    traefik.ingress.kubernetes.io/router.priority: "1000"
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      am-apps-dev-dev-global-cors@kubernetescrd,
+      am-apps-dev-dev-strip-prefix@kubernetescrd
+  hosts:
+    - host: am-dev.asrax.in
+      paths:
+        - path: /ai
+          pathType: Prefix

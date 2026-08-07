@@ -1,0 +1,31 @@
+# Apply with: kubectl apply -f am-gateways/mcp-gateway/k8s/ingress.dev.yaml
+# Public AI chat: https://am-dev.asrax.in/ai/api/v1/ai/chat
+# Strip /ai via am-apps-dev/dev-strip-prefix so gateway sees /api/v1/ai/chat
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: am-ai-gateway
+  namespace: am-apps-dev
+  labels:
+    app.kubernetes.io/instance: am-ai-gateway
+    app.kubernetes.io/name: am-ai-gateway
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.priority: "1000"
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      am-apps-dev-dev-global-cors@kubernetescrd,
+      am-apps-dev-dev-strip-prefix@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: am-dev.asrax.in
+      http:
+        paths:
+          - path: /ai
+            pathType: Prefix
+            backend:
+              service:
+                name: am-ai-gateway
+                port:
+                  number: 8120

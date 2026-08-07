@@ -1,0 +1,19 @@
+environment: prod
+replicaCount: 1
+
+global:
+  image:
+    tag: "30728332880"
+
+env:
+  APP_ENV: prod
+  FINANCE_AGENT_BASE_URL: "http://am-fin-agent.am-apps-prod.svc.cluster.local:8080"
+  FINANCE_AGENT_CHAT_PATH: "/api/v1/ai/chat"
+  FINANCE_AGENT_MCP_PATH: "/ai/mcp"
+  CORS_ORIGINS: "https://am.asrax.in,https://am.munish.org"
+
+ingress:
+  enabled: false
+
+vault:
+  enabled: false
