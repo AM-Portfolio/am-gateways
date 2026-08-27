@@ -286,16 +286,25 @@ async def feedback_proxy(request: Request) -> Response:
 
 @app.post("/v1/ai/actions/confirm")
 @app.post("/api/v1/ai/actions/confirm")
-async def confirm_action(payload: dict) -> dict[str, Any]:
-    """Phase 4 HITL action confirmation stub."""
+async def confirm_action(payload: dict, request: Request) -> dict[str, Any]:
+    """Phase 4 HITL action confirmation endpoint. Forwards to agent."""
     confirm_token = payload.get("confirmToken")
     if not confirm_token:
         raise HTTPException(status_code=400, detail="Missing confirmToken in payload")
-    return {
-        "status": "confirmed",
-        "confirmToken": confirm_token,
-        "message": "Action confirmed (HITL execution enabled in Phase 4).",
-    }
+        
+    headers = _clean_headers(request.headers)
+    async with httpx.AsyncClient() as client:
+        try:
+            upstream = await client.post(
+                f"{settings.AM_AGENT_URL}/api/v1/ai/actions/confirm",
+                json=payload,
+                headers=headers,
+                timeout=30.0,
+            )
+            return Response(content=upstream.content, status_code=upstream.status_code, media_type="application/json")
+        except httpx.RequestError as exc:
+            logger.error(f"Agent confirmation request failed: {exc}")
+            raise HTTPException(status_code=502, detail=f"Agent unavailable: {exc}")
 
 
 # ─── MCP SSE Proxy ────────────────────────────────────────────────────────────
