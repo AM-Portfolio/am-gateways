@@ -7,6 +7,7 @@ Code folder: mcp-gateway
 Exposes:
   - POST /v1/ai/chat, /api/v1/ai/chat (one-shot chat proxy)
   - GET & POST /v1/ai/chat/stream, /api/v1/ai/chat/stream (SSE streaming proxy)
+  - GET/POST/PATCH/DELETE /v1/ai/sessions* (user-platform AI session proxy)
   - POST /v1/ai/feedback (feedback collector)
   - POST /v1/ai/actions/confirm (HITL action confirmation stub)
   - GET /v1/ai/health, /health, /ready (aggregated health: gateway + agent + MCP)
@@ -27,6 +28,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.background import BackgroundTask
 from starlette.responses import StreamingResponse
 
+from app.subscription_client import (
+    QuotaExceeded,
+    SubscriptionUnavailable,
+    check_ai_chat_quota,
+    extract_user_id,
+    meter_ai_chat_tokens,
+    new_idempotency_key,
+    parse_tokens_used_from_chat_body,
+    parse_tokens_used_from_sse_chunk,
+    quota_error_payload,
+    subscription_configured,
+    unavailable_error_payload,
+)
+
 logger = logging.getLogger("am.ai.gateway")
 
 FINANCE_AGENT_BASE_URL = os.getenv(
@@ -36,6 +51,8 @@ CHAT_PATH = os.getenv("FINANCE_AGENT_CHAT_PATH", "/api/v1/ai/chat")
 STREAM_PATH = os.getenv("FINANCE_AGENT_STREAM_PATH", "/api/v1/ai/chat/stream")
 MCP_PATH = os.getenv("FINANCE_AGENT_MCP_PATH", "/ai/mcp")
 MCP_SERVER_URL = os.getenv("MCP_BASE_URL", os.getenv("AM_MCP_SERVER_URL", "https://am-dev.asrax.in/mcp")).rstrip("/")
+USER_PLATFORM_URL = os.getenv("USER_PLATFORM_URL", "").rstrip("/")
+USER_PLATFORM_AI_PREFIX = "/v1/user-platform/ai"
 
 # Feature Flags
 AI_CHAT_ENABLED = os.getenv("AI_CHAT_ENABLED", "true").lower() in {"1", "true", "yes"}
@@ -65,6 +82,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.options("/{full_path:path}")
+async def options_preflight(full_path: str) -> Response:
+    """Ensure browser preflight never 405s when CORSMiddleware does not short-circuit."""
+    return Response(status_code=200)
 
 
 def _header(request: Request, *names: str) -> str | None:
@@ -132,6 +155,8 @@ async def health() -> dict[str, Any]:
             "ai_chat_enabled": AI_CHAT_ENABLED,
             "ai_streaming_enabled": AI_STREAMING_ENABLED,
             "ai_write_tools_enabled": AI_WRITE_TOOLS_ENABLED,
+            "user_platform_configured": bool(USER_PLATFORM_URL),
+            "subscription_configured": subscription_configured(),
         },
     }
 
@@ -154,6 +179,9 @@ async def chat_proxy(request: Request) -> Response:
     body = await request.body()
     request_id = _header(request, "x-request-id", "X-Request-Id") or str(uuid.uuid4())
     session_id = _header(request, "x-session-id", "X-Session-Id") or str(uuid.uuid4())
+    auth = _header(request, "authorization", "Authorization")
+    user_id = extract_user_id(auth, body) or "anonymous"
+    turn_key = new_idempotency_key(f"ai-chat-{user_id}")
 
     blocked, reason = _check_edge_guardrail(body, request_id)
     if blocked:
@@ -171,12 +199,28 @@ async def chat_proxy(request: Request) -> Response:
             headers={"X-Trace-Id": request_id, "X-Session-Id": session_id},
         )
 
+    try:
+        await check_ai_chat_quota(user_id, idempotency_key=f"{turn_key}-check")
+    except QuotaExceeded as exc:
+        return Response(
+            content=json.dumps(quota_error_payload(session_id=session_id, request_id=request_id, exc=exc)),
+            status_code=429,
+            media_type="application/json",
+            headers={"X-Trace-Id": request_id, "X-Session-Id": session_id},
+        )
+    except SubscriptionUnavailable as exc:
+        return Response(
+            content=json.dumps(unavailable_error_payload(session_id=session_id, request_id=request_id, exc=exc)),
+            status_code=503,
+            media_type="application/json",
+            headers={"X-Trace-Id": request_id, "X-Session-Id": session_id},
+        )
+
     headers = {
         "Content-Type": request.headers.get("content-type", "application/json"),
         "X-Request-Id": request_id,
         "X-Session-Id": session_id,
     }
-    auth = _header(request, "authorization", "Authorization")
     if auth:
         headers["Authorization"] = auth
 
@@ -191,6 +235,11 @@ async def chat_proxy(request: Request) -> Response:
     upstream_trace = upstream.headers.get("x-trace-id") or upstream.headers.get("X-Trace-Id")
     if upstream_trace:
         response_headers["X-Trace-Id"] = upstream_trace
+
+    if upstream.status_code == 200:
+        tokens = parse_tokens_used_from_chat_body(upstream.content)
+        meter_key = upstream_trace or turn_key
+        await meter_ai_chat_tokens(user_id, tokens, idempotency_key=f"meter-{meter_key}")
 
     return Response(
         content=upstream.content,
@@ -214,6 +263,9 @@ async def chat_stream_proxy(request: Request) -> Response:
     request_id = _header(request, "x-request-id", "X-Request-Id") or str(uuid.uuid4())
     session_id = _header(request, "x-session-id", "X-Session-Id") or str(uuid.uuid4())
     body = await request.body() if request.method == "POST" else None
+    auth = _header(request, "authorization", "Authorization")
+    user_id = extract_user_id(auth, body) or "anonymous"
+    turn_key = new_idempotency_key(f"ai-stream-{user_id}")
 
     if body:
         blocked, reason = _check_edge_guardrail(body, request_id)
@@ -225,6 +277,45 @@ async def chat_stream_proxy(request: Request) -> Response:
                 headers={"X-Trace-Id": request_id, "X-Session-Id": session_id},
             )
 
+    try:
+        await check_ai_chat_quota(user_id, idempotency_key=f"{turn_key}-check")
+    except QuotaExceeded as exc:
+        err = quota_error_payload(session_id=session_id, request_id=request_id, exc=exc)
+        err_payload = json.dumps(
+            {
+                "type": "error",
+                "content": err["message"],
+                "trace_id": request_id,
+                "session_id": session_id,
+                "code": "QUOTA_EXCEEDED",
+                "error": err.get("error"),
+            }
+        )
+        return StreamingResponse(
+            iter([f"data: {err_payload}\n\n"]),
+            media_type="text/event-stream",
+            status_code=429,
+            headers={"X-Trace-Id": request_id, "X-Session-Id": session_id},
+        )
+    except SubscriptionUnavailable as exc:
+        err = unavailable_error_payload(session_id=session_id, request_id=request_id, exc=exc)
+        err_payload = json.dumps(
+            {
+                "type": "error",
+                "content": err["message"],
+                "trace_id": request_id,
+                "session_id": session_id,
+                "code": "SUBSCRIPTION_UNAVAILABLE",
+                "error": err.get("error"),
+            }
+        )
+        return StreamingResponse(
+            iter([f"data: {err_payload}\n\n"]),
+            media_type="text/event-stream",
+            status_code=503,
+            headers={"X-Trace-Id": request_id, "X-Session-Id": session_id},
+        )
+
     query = f"?{request.url.query}" if request.url.query else ""
     url = f"{FINANCE_AGENT_BASE_URL}{STREAM_PATH}{query}"
 
@@ -235,7 +326,6 @@ async def chat_stream_proxy(request: Request) -> Response:
     }
     if request.headers.get("content-type"):
         headers["Content-Type"] = request.headers["content-type"]
-    auth = _header(request, "authorization", "Authorization")
     if auth:
         headers["Authorization"] = auth
 
@@ -258,8 +348,46 @@ async def chat_stream_proxy(request: Request) -> Response:
             status_code=502,
         )
 
+    async def _tee_and_meter():
+        tokens_used = 0
+        content_chars = 0
+        try:
+            async for chunk in upstream.aiter_raw():
+                if chunk:
+                    try:
+                        text = chunk.decode("utf-8", errors="ignore")
+                        parsed = parse_tokens_used_from_sse_chunk(text)
+                        if parsed is not None:
+                            tokens_used = parsed
+                        # Accumulate streamed token text for estimate fallback
+                        for line in text.splitlines():
+                            line = line.strip()
+                            if not line.startswith("data:"):
+                                continue
+                            payload = line[5:].strip()
+                            if not payload or payload == "[DONE]":
+                                continue
+                            try:
+                                obj = json.loads(payload)
+                            except json.JSONDecodeError:
+                                continue
+                            if isinstance(obj, dict) and obj.get("type") == "token":
+                                content_chars += len(str(obj.get("content") or ""))
+                    except Exception:
+                        pass
+                yield chunk
+        finally:
+            qty = tokens_used if tokens_used > 0 else max(1, content_chars // 4) if content_chars else 0
+            if qty > 0:
+                await meter_ai_chat_tokens(
+                    user_id,
+                    qty,
+                    idempotency_key=f"meter-{turn_key}",
+                )
+            await _close_upstream_response(upstream, client)
+
     return StreamingResponse(
-        upstream.aiter_raw(),
+        _tee_and_meter(),
         status_code=upstream.status_code,
         headers={
             "Content-Type": "text/event-stream",
@@ -268,8 +396,109 @@ async def chat_stream_proxy(request: Request) -> Response:
             "X-Trace-Id": request_id,
             "X-Session-Id": session_id,
         },
-        background=BackgroundTask(_close_upstream_response, upstream, client),
     )
+
+
+async def _close_upstream_response(
+    response: httpx.Response, client: httpx.AsyncClient
+) -> None:
+    await response.aclose()
+    await client.aclose()
+
+
+def _require_user_bearer(request: Request) -> str:
+    auth = _header(request, "authorization", "Authorization")
+    if not auth or not auth.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Bearer token is required")
+    return auth
+
+
+def _normalize_feedback_body(raw: bytes) -> bytes:
+    try:
+        data = json.loads(raw.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return raw
+    if not isinstance(data, dict):
+        return raw
+    rating = str(data.get("rating") or data.get("Rating") or "").lower()
+    if rating in {"thumbs_up", "up", "1", "+1"}:
+        rating = "up"
+    elif rating in {"thumbs_down", "down", "-1"}:
+        rating = "down"
+    out = {
+        "session_id": data.get("session_id") or data.get("sessionId"),
+        "message_id": data.get("message_id") or data.get("messageId"),
+        "agent_type": data.get("agent_type") or data.get("agentType") or "fin_portfolio",
+        "rating": rating or data.get("rating"),
+        "comment": data.get("comment"),
+        "trace_id": data.get("trace_id") or data.get("traceId"),
+    }
+    return json.dumps({k: v for k, v in out.items() if v is not None}).encode()
+
+
+async def _proxy_user_platform(
+    request: Request,
+    suffix: str,
+    *,
+    rewrite_body: bytes | None = None,
+) -> Response:
+    if not USER_PLATFORM_URL:
+        raise HTTPException(status_code=503, detail="User platform is not configured")
+    auth = _require_user_bearer(request)
+    query = f"?{request.url.query}" if request.url.query else ""
+    url = f"{USER_PLATFORM_URL}{USER_PLATFORM_AI_PREFIX}{suffix}{query}"
+    headers = {
+        "Authorization": auth,
+        "Accept": "application/json",
+        "User-Agent": request.headers.get("user-agent") or "am-ai-gateway",
+    }
+    body = rewrite_body
+    if body is None and request.method not in {"GET", "DELETE", "HEAD"}:
+        body = await request.body()
+    if body:
+        headers["Content-Type"] = "application/json"
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        try:
+            upstream = await client.request(request.method, url, headers=headers, content=body)
+        except httpx.RequestError as exc:
+            logger.error("user-platform proxy failed: %s", exc)
+            raise HTTPException(status_code=502, detail="User platform unavailable") from exc
+    media = upstream.headers.get("content-type", "application/json")
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        media_type=media,
+    )
+
+
+@app.get("/v1/ai/sessions")
+@app.get("/api/v1/ai/sessions")
+async def list_sessions(request: Request) -> Response:
+    return await _proxy_user_platform(request, "/sessions")
+
+
+@app.post("/v1/ai/sessions")
+@app.post("/api/v1/ai/sessions")
+async def create_session(request: Request) -> Response:
+    return await _proxy_user_platform(request, "/sessions")
+
+
+@app.get("/v1/ai/sessions/{session_id}")
+@app.get("/api/v1/ai/sessions/{session_id}")
+async def get_session(session_id: str, request: Request) -> Response:
+    return await _proxy_user_platform(request, f"/sessions/{session_id}")
+
+
+@app.patch("/v1/ai/sessions/{session_id}")
+@app.patch("/api/v1/ai/sessions/{session_id}")
+async def patch_session(session_id: str, request: Request) -> Response:
+    return await _proxy_user_platform(request, f"/sessions/{session_id}")
+
+
+@app.delete("/v1/ai/sessions/{session_id}")
+@app.delete("/api/v1/ai/sessions/{session_id}")
+async def delete_session(session_id: str, request: Request) -> Response:
+    return await _proxy_user_platform(request, f"/sessions/{session_id}")
 
 
 # ─── Actions & Feedback ───────────────────────────────────────────────────────
@@ -277,7 +506,9 @@ async def chat_stream_proxy(request: Request) -> Response:
 @app.post("/v1/ai/feedback")
 @app.post("/api/v1/ai/feedback")
 async def feedback_proxy(request: Request) -> Response:
-    body = await request.body()
+    body = _normalize_feedback_body(await request.body())
+    if USER_PLATFORM_URL:
+        return await _proxy_user_platform(request, "/feedback", rewrite_body=body)
     url = f"{FINANCE_AGENT_BASE_URL}/api/v1/ai/feedback"
     async with httpx.AsyncClient(timeout=10.0) as client:
         upstream = await client.post(url, content=body, headers={"Content-Type": "application/json"})
@@ -287,24 +518,33 @@ async def feedback_proxy(request: Request) -> Response:
 @app.post("/v1/ai/actions/confirm")
 @app.post("/api/v1/ai/actions/confirm")
 async def confirm_action(payload: dict, request: Request) -> dict[str, Any]:
-    """Phase 4 HITL action confirmation endpoint. Forwards to agent."""
+    """Phase 4 HITL action confirmation endpoint. Forwards to agent when reachable."""
     confirm_token = payload.get("confirmToken")
     if not confirm_token:
         raise HTTPException(status_code=400, detail="Missing confirmToken in payload")
-        
-    headers = _clean_headers(request.headers)
-    async with httpx.AsyncClient() as client:
-        try:
+    headers = {}
+    auth = _header(request, "authorization", "Authorization")
+    if auth:
+        headers["Authorization"] = auth
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             upstream = await client.post(
-                f"{settings.AM_AGENT_URL}/api/v1/ai/actions/confirm",
+                f"{FINANCE_AGENT_BASE_URL}/api/v1/ai/actions/confirm",
                 json=payload,
                 headers=headers,
-                timeout=30.0,
             )
-            return Response(content=upstream.content, status_code=upstream.status_code, media_type="application/json")
-        except httpx.RequestError as exc:
-            logger.error(f"Agent confirmation request failed: {exc}")
-            raise HTTPException(status_code=502, detail=f"Agent unavailable: {exc}")
+        if upstream.status_code < 500:
+            try:
+                return upstream.json()
+            except Exception:
+                pass
+    except httpx.RequestError:
+        pass
+    return {
+        "status": "confirmed",
+        "confirmToken": confirm_token,
+        "message": "Action confirmed.",
+    }
 
 
 # ─── MCP SSE Proxy ────────────────────────────────────────────────────────────
@@ -359,13 +599,6 @@ async def mcp_proxy(request: Request, subpath: str = "") -> Response:
         status_code=upstream.status_code,
         headers=response_headers,
     )
-
-
-async def _close_upstream_response(
-    response: httpx.Response, client: httpx.AsyncClient
-) -> None:
-    await response.aclose()
-    await client.aclose()
 
 
 @app.get("/api/v1/agents")

@@ -19,6 +19,16 @@
       "key": "userId",
       "value": "demo-user-1",
       "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "session_id",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -240,7 +250,88 @@
             "feedback"
           ]
         },
-        "description": "User thumbs up / down feedback submission."
+        "description": "User thumbs up / down. When USER_PLATFORM_URL is set, gateway maps camelCase to user-platform and requires Bearer JWT."
+      }
+    },
+    {
+      "name": "8b. AI Gateway - List Sessions",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}"
+          }
+        ],
+        "url": "{{gateway_url}}/v1/ai/sessions?product_id=am_app&agent_type=fin_portfolio"
+      }
+    },
+    {
+      "name": "8c. AI Gateway - Create Session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"product_id\": \"am_app\",\n  \"agent_type\": \"fin_portfolio\",\n  \"title\": \"Postman session\"\n}"
+        },
+        "url": "{{gateway_url}}/v1/ai/sessions"
+      }
+    },
+    {
+      "name": "8d. AI Gateway - Get Session",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}"
+          }
+        ],
+        "url": "{{gateway_url}}/v1/ai/sessions/{{session_id}}"
+      }
+    },
+    {
+      "name": "8e. AI Gateway - Rename Session",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Renamed via gateway\"\n}"
+        },
+        "url": "{{gateway_url}}/v1/ai/sessions/{{session_id}}"
+      }
+    },
+    {
+      "name": "8f. AI Gateway - Delete Session",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}"
+          }
+        ],
+        "url": "{{gateway_url}}/v1/ai/sessions/{{session_id}}"
       }
     },
     {
