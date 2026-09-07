@@ -70,6 +70,19 @@ def test_stream_proxy_guardrail_block(client):
     assert "blocked" in response.text.lower()
 
 
+def test_options_preflight_chat_stream_ok(client):
+    """Browsers must not get 405 on OPTIONS for SSE chat (CORS preflight)."""
+    response = client.options(
+        "/v1/ai/chat/stream",
+        headers={
+            "Origin": "http://localhost:9000",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+    assert response.status_code == 200
+
+
 # ─── 5. Agents Listing ────────────────────────────────────────────────────────
 
 def test_list_agents(client):

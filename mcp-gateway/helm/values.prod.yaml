@@ -7,13 +7,37 @@ global:
 
 env:
   APP_ENV: prod
-  FINANCE_AGENT_BASE_URL: "http://am-fin-agent.am-apps-prod.svc.cluster.local:8080"
+  FINANCE_AGENT_BASE_URL: "http://am-fin-agent.am-apps-prod.svc.cluster.local:8101"
   FINANCE_AGENT_CHAT_PATH: "/api/v1/ai/chat"
   FINANCE_AGENT_MCP_PATH: "/ai/mcp"
-  CORS_ORIGINS: "https://am.asrax.in,https://am.munish.org"
+  USER_PLATFORM_URL: "http://am-user-platform.am-apps-prod.svc.cluster.local:8080"
+  SUBSCRIPTION_SERVICE_URL: "http://am-subscription.am-apps-prod.svc.cluster.local:8080"
+  SUBSCRIPTION_CLIENT_ID: "am-gateway-client"
+  KEYCLOAK_TOKEN_URL: "http://auth.asrax.in/auth/realms/am-realm/protocol/openid-connect/token"
+  CORS_ORIGINS: "https://am.asrax.in,https://am.munish.org,http://localhost:9000,http://127.0.0.1:9000"
 
 ingress:
-  enabled: false
+  enabled: true
+  className: "traefik"
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.priority: "1000"
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      am-apps-prod-global-cors@kubernetescrd,
+      am-apps-prod-strip-prefix-apps@kubernetescrd
+  hosts:
+    - host: am.asrax.in
+      paths:
+        - path: /ai
+          pathType: Prefix
 
+# Metering/quota need SUBSCRIPTION_CLIENT_SECRET via Vault
+# (key AM_GATEWAY_CLIENT_SECRET). Leave disabled until that secret is
+# confirmed at apps/data/prod/services/am-ai-gateway — otherwise inject fails.
+# Session history proxy does not require this secret.
 vault:
   enabled: false
+  secretPaths:
+    service-oauth:
+      path: "apps/data/prod/services/am-ai-gateway"

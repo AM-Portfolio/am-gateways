@@ -1,2 +1,6 @@
 vault:
-  enabled: false
+  secretPaths:
+    service-oauth:
+      mappings:
+        # am-gateway-client secret (same Keycloak client allowed on subscription internal APIs)
+        SUBSCRIPTION_CLIENT_SECRET: "AM_GATEWAY_CLIENT_SECRET"
