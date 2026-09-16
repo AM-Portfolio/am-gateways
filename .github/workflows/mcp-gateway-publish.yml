@@ -5,17 +5,20 @@ on:
     branches: ["main", "develop", "fix/**", "hotfix/**", "feature/**"]
     paths:
       - "mcp-gateway/**"
+      - ".github/workflows/mcp-gateway-publish.yml"
   pull_request:
     branches: ["main", "develop", "fix/**", "hotfix/**", "feature/**"]
     paths:
       - "mcp-gateway/**"
+      - ".github/workflows/mcp-gateway-publish.yml"
   workflow_dispatch:
 
 jobs:
   publish:
     name: Publish AM AI Gateway
     permissions:
-      contents: read
+      # Nested deploy-preprod pushes helm/ci-image.yaml on feature branches.
+      contents: write
       packages: write
     uses: AM-Portfolio/am-pipelines/.github/workflows/central-build-publish.yml@main
     with:
