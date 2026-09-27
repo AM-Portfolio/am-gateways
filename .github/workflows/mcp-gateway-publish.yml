@@ -1,5 +1,5 @@
-# Publish only: security + build + GHCR. Contabo Argo auto-deploys preprod on main.
-# Other envs: Manual Deploy — AM AI Gateway.
+# Publish: security + build + GHCR.
+# main: Contabo Argo preprod auto (central); dev/prod/dr wait for GitHub Environment Approve then Contabo.
 name: AI Gateway Publish
 
 on:
@@ -35,3 +35,78 @@ jobs:
       gitops_write_preprod: true
       gitops_values_path: "mcp-gateway"
     secrets: inherit
+
+  contabo-approve:
+    name: Contabo Argo → ${{ matrix.env }} (approve)
+    needs: publish
+    if: |
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
+      needs.publish.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, prod, dr]
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.env }}
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Checkout am-pipelines scripts
+        uses: actions/checkout@v4
+        with:
+          repository: AM-Portfolio/am-pipelines
+          path: am-pipelines-repo
+          ref: main
+          token: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Resolve image tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          TAG_FROM_PUBLISH: ${{ needs.publish.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          SVC=am-ai-gateway
+          TAG="${TAG_FROM_PUBLISH:-}"
+          if [[ -z "$TAG" ]]; then
+            RAW=$(gh api "repos/AM-Portfolio/am-gitops/contents/preprod/image-tags/${SVC}.yaml" -H "Accept: application/vnd.github.raw")
+            TAG=$(echo "$RAW" | sed -n 's/.*tag:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+          fi
+          if [[ -z "$TAG" ]]; then
+            echo "::error::No image tag from publish or preprod pin"
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag=${TAG} for Contabo ${{ matrix.env }}"
+
+      - name: Deploy + verify Contabo (dev)
+        if: matrix.env == 'dev'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          INPUT_SERVICE_NAME: am-ai-gateway
+          INPUT_ENVIRONMENT: ${{ matrix.env }}
+          INPUT_IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          chmod +x am-pipelines-repo/scripts/ci/argo-api-lib.sh
+          chmod +x am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
+          am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
+
+      - name: Promote + verify Contabo (prod/dr)
+        if: matrix.env == 'prod' || matrix.env == 'dr'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          INPUT_SERVICE_NAME: am-ai-gateway
+          INPUT_ENVIRONMENT: ${{ matrix.env }}
+          INPUT_IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          chmod +x am-pipelines-repo/scripts/ci/argo-api-lib.sh
+          chmod +x am-pipelines-repo/scripts/ci/argo-promote-and-wait.sh
+          am-pipelines-repo/scripts/ci/argo-promote-and-wait.sh
