@@ -12,6 +12,18 @@ on:
       - "mcp-gateway/**"
       - ".github/workflows/mcp-gateway-publish.yml"
   workflow_dispatch:
+    inputs:
+      deploy_env:
+        description: "After build, Contabo Argo deploy to this env (none = pin preprod on main only)"
+        required: true
+        type: choice
+        default: none
+        options:
+          - none
+          - dev
+          - preprod
+          - prod
+          - dr
 
 jobs:
   publish:
@@ -32,3 +44,47 @@ jobs:
       gitops_write_preprod: true
       gitops_values_path: "mcp-gateway"
     secrets: inherit
+
+  argo-deploy:
+    name: Contabo Argo → ${{ github.event.inputs.deploy_env || 'none' }}
+    needs: publish
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.deploy_env != 'none' &&
+      needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Pin or promote via am-gitops
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.publish.outputs.image_tag }}
+          ENV: ${{ github.event.inputs.deploy_env }}
+        run: |
+          set -euo pipefail
+          SVC=am-ai-gateway
+          if [[ -z "${TAG:-}" ]]; then
+            echo "::error::No image_tag from publish job"
+            exit 1
+          fi
+          case "$ENV" in
+            dev|preprod)
+              gh workflow run set-image-tag.yml -R AM-Portfolio/am-gitops \
+                -f service="$SVC" -f env="$ENV" -f tag="$TAG"
+              echo "::notice::Pinned ${SVC} ${ENV}=${TAG} — Contabo argo-sync-on-tags will roll ${SVC}-${ENV}"
+              ;;
+            prod)
+              gh workflow run promote-to-prod.yml -R AM-Portfolio/am-gitops -f service="$SVC"
+              echo "::notice::Promote PR opened for ${SVC} — human-merge (CODEOWNERS), then Argo syncs prod."
+              ;;
+            dr)
+              gh workflow run promote-to-dr.yml -R AM-Portfolio/am-gitops -f service="$SVC"
+              echo "::notice::Promote-to-dr opened for ${SVC} — human-merge, then Argo syncs DR."
+              ;;
+            *)
+              echo "::error::Unknown env=$ENV"
+              exit 1
+              ;;
+          esac
