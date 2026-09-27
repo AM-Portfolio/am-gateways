@@ -1,5 +1,5 @@
-# Publish: security + build + GHCR + preprod pin (central, no Contabo wait).
-# main: Contabo dev / preprod / prod / dr in parallel — each waits for GitHub Environment Approve.
+# Publish: security + build + GHCR (+ preprod pin on main).
+# main: Contabo dev/preprod/prod/dr Approve. Feature/fix/hotfix/develop: dev+preprod Approve only.
 name: AI Gateway Publish
 
 on:
@@ -43,13 +43,20 @@ jobs:
     if: |
       always() &&
       github.event_name == 'push' &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
+      (
+        github.ref == 'refs/heads/main' ||
+        github.ref == 'refs/heads/master' ||
+        github.ref == 'refs/heads/develop' ||
+        startsWith(github.ref, 'refs/heads/feature/') ||
+        startsWith(github.ref, 'refs/heads/fix/') ||
+        startsWith(github.ref, 'refs/heads/hotfix/')
+      ) &&
       needs.publish.result != 'cancelled' &&
       needs.publish.outputs.image_tag != ''
     strategy:
       fail-fast: false
       matrix:
-        env: [dev, preprod, prod, dr]
+        env: ${{ fromJSON((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && '["dev","preprod","prod","dr"]' || '["dev","preprod"]') }}
     runs-on: ubuntu-latest
     environment: ${{ matrix.env }}
     permissions:
@@ -78,7 +85,9 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Contabo sync + wait (preprod — pin already on main)
-        if: matrix.env == 'preprod'
+        if: |
+          matrix.env == 'preprod' &&
+          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         env:
           ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
           ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
@@ -91,6 +100,24 @@ jobs:
           chmod +x am-pipelines-repo/scripts/ci/argo-api-lib.sh
           chmod +x am-pipelines-repo/scripts/ci/argo-sync-and-wait.sh
           am-pipelines-repo/scripts/ci/argo-sync-and-wait.sh
+
+      - name: Contabo pin + wait (preprod — feature branch)
+        if: |
+          matrix.env == 'preprod' &&
+          github.ref != 'refs/heads/main' &&
+          github.ref != 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          INPUT_SERVICE_NAME: am-ai-gateway
+          INPUT_ENVIRONMENT: preprod
+          INPUT_IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          chmod +x am-pipelines-repo/scripts/ci/argo-api-lib.sh
+          chmod +x am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
+          am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
 
       - name: Contabo pin + wait (dev)
         if: matrix.env == 'dev'
