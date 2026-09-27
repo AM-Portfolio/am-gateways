@@ -1,4 +1,5 @@
 # Publish: security + build + GHCR (+ preprod pin on main). One Build only (central).
+# graph-verify: Contabo Approve must be Build siblings inside central.
 # Contabo Approve jobs live IN central as siblings of Feature notice / GitOps after Build.
 # main: dev+preprod+prod+dr Approve. feat/fix/PR: dev+preprod only. No second build.
 name: API Gateway Publish
