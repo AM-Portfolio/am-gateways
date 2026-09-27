@@ -1,19 +1,14 @@
+# Manual Contabo Argo deploy via am-gitops pins (no kubeconfig Helm).
+# - dev / preprod: set-image-tag → argo-sync-on-tags
+# - prod / dr: open promote workflow (human CODEOWNERS merge)
 name: Manual Deploy — AM API Gateway
 
 on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Select Image Tag"
+        description: "GHCR image tag (numeric CI run id preferred)"
         required: true
-        default: "latest"
-        type: choice
-        options:
-          - latest
-          - custom
-      custom_tag:
-        description: "If 'custom' selected, enter tag here"
-        required: false
         type: string
       environment:
         description: "Target Environment"
@@ -24,27 +19,42 @@ on:
           - dev
           - preprod
           - prod
+          - dr
+
+permissions:
+  contents: read
+  actions: write
 
 jobs:
   deploy:
-    name: Deploy AM API Gateway → ${{ github.event.inputs.environment }}
-    uses: AM-Portfolio/am-pipelines/.github/workflows/central-deploy.yml@main
-    with:
-      # Release name am-api-gateway (legacy am-asrax-proxy untouched)
-      service_name: "am-api-gateway"
-      working_directory: "api-gateway"
-      language: "python"
-      environment: ${{ github.event.inputs.environment }}
-      image_tag: >-
-        ${{
-          github.event.inputs.image_tag == 'custom'
-            && github.event.inputs.custom_tag
-            || github.event.inputs.image_tag
-        }}
-      namespace: >-
-        ${{
-          github.event.inputs.environment == 'prod' && 'am-apps-prod'
-          || github.event.inputs.environment == 'preprod' && 'am-apps-preprod'
-          || 'am-apps-dev'
-        }}
-    secrets: inherit
+    name: Deploy AM API Gateway → ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pin or promote via am-gitops
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.image_tag }}
+          ENV: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          SVC=am-api-gateway
+          case "$ENV" in
+            dev|preprod)
+              gh workflow run set-image-tag.yml -R AM-Portfolio/am-gitops \
+                -f service="$SVC" -f env="$ENV" -f tag="$TAG"
+              echo "::notice::Dispatched am-gitops set-image-tag for ${SVC} ${ENV}=${TAG}"
+              echo "::notice::argo-sync-on-tags will sync Contabo app ${SVC}-${ENV}"
+              ;;
+            prod)
+              gh workflow run promote-to-prod.yml -R AM-Portfolio/am-gitops -f service="$SVC"
+              echo "::notice::Opened promote-to-prod for ${SVC} — human-merge the PR (CODEOWNERS)."
+              ;;
+            dr)
+              gh workflow run promote-to-dr.yml -R AM-Portfolio/am-gitops -f service="$SVC"
+              echo "::notice::Opened promote-to-dr for ${SVC} — human-merge the PR (CODEOWNERS)."
+              ;;
+            *)
+              echo "::error::Unknown env=$ENV"
+              exit 1
+              ;;
+          esac
