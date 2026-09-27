@@ -24,3 +24,11 @@ ingress:
       paths:
         - path: /ai
           pathType: Prefix
+
+# Contabo dig CSI — path + mappings (see vault-mappings.yaml service-oauth).
+# Auth mount/role come from am-gitops overlays/dev/vault-https-contabo.yaml.
+vault:
+  enabled: true
+  secretPaths:
+    service-oauth:
+      path: apps/data/dev/services/am-ai-gateway
