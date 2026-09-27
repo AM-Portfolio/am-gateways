@@ -1,6 +1,8 @@
 # Manual Contabo Argo deploy for all 4 envs — waits Healthy/Synced or FAILS.
+# Job uses GitHub Environment ${{ inputs.environment }} so Required reviewers
+# (Settings → Environments: dev, preprod, prod, dr) must Approve before Contabo runs.
 # preprod also auto-deploys on main merge via Publish; use this to re-roll or pin a tag.
-# prod/dr: opens promote PR, waits for human merge, then Contabo sync+wait.
+# prod/dr: after Approve → promote PR → human CODEOWNERS merge → Contabo sync+wait.
 name: Manual Deploy — AM API Gateway
 
 on:
@@ -12,7 +14,7 @@ on:
         type: string
         default: ""
       environment:
-        description: "Target Environment (Contabo Argo only)"
+        description: "Target Environment (Contabo Argo only; GitHub Environment approval)"
         required: true
         default: "dev"
         type: choice
@@ -30,6 +32,7 @@ jobs:
   deploy:
     name: Contabo Argo → ${{ inputs.environment }}
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
     steps:
       - name: Checkout am-pipelines scripts
         uses: actions/checkout@v4
