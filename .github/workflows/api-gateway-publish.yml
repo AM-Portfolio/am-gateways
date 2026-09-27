@@ -1,7 +1,6 @@
-# Publish: security + build + GHCR (+ preprod pin on main). One Build only (central).
-# graph-verify: Contabo Approve must be Build siblings inside central.
-# Contabo Approve jobs live IN central as siblings of Feature notice / GitOps after Build.
-# main: dev+preprod+prod+dr Approve. feat/fix/PR: dev+preprod only. No second build.
+# Publish: one Build in central. Contabo Approve siblings after Build.
+# Graph: Auto sync→preprod (no gitops commit) | Contabo dev | Feature→GHCR | Contabo preprod (+prod/dr on main).
+# No GitOps pin job for gateways — pin on Contabo Approve only.
 name: API Gateway Publish
 
 on:
@@ -34,9 +33,8 @@ jobs:
       deploy_prod: false
       deploy_dev: false
       deploy_preprod: true
-      gitops_write_preprod: true
+      gitops_write_preprod: false
       gitops_values_path: "api-gateway"
       contabo_wait_preprod: false
       contabo_approve: true
     secrets: inherit
-
