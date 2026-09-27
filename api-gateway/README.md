@@ -83,5 +83,5 @@ helm upgrade --install am-api-gateway \
   -n am-apps-dev
 ```
 
-<!-- pipeline ping 2026-09-27 16:25 -->
+<!-- pipeline ping 2026-09-27 19:56 Contabo dig roll -->
 
