@@ -1,6 +1,6 @@
 # Publish: security + build + GHCR (+ preprod pin on main). One Build only (central).
-# main push: Contabo dev/preprod/prod/dr Approve.
-# feature/fix/hotfix/develop push or PR: Contabo dev+preprod Approve only (no second build).
+# Contabo Approve jobs live IN central as siblings of Feature notice / GitOps after Build.
+# main: dev+preprod+prod+dr Approve. feat/fix/PR: dev+preprod only. No second build.
 name: AI Gateway Publish
 
 on:
@@ -36,118 +36,6 @@ jobs:
       gitops_write_preprod: true
       gitops_values_path: "mcp-gateway"
       contabo_wait_preprod: false
+      contabo_approve: true
     secrets: inherit
 
-  contabo-approve:
-    name: Contabo Argo → ${{ matrix.env }} (approve)
-    needs: publish
-    # push or PR; main = all four envs; feature/fix/hotfix/develop = DEV+preprod only.
-    # Use head_ref||ref_name so PRs (refs/pull/N/merge) still resolve the feature branch.
-    if: |
-      always() &&
-      (github.event_name == 'push' || github.event_name == 'pull_request') &&
-      needs.publish.result != 'cancelled' &&
-      needs.publish.outputs.image_tag != '' &&
-      (
-        (github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')) ||
-        (github.head_ref || github.ref_name) == 'develop' ||
-        startsWith(github.head_ref || github.ref_name, 'feature/') ||
-        startsWith(github.head_ref || github.ref_name, 'feat/') ||
-        startsWith(github.head_ref || github.ref_name, 'fix/') ||
-        startsWith(github.head_ref || github.ref_name, 'hotfix/')
-      )
-    strategy:
-      fail-fast: false
-      matrix:
-        env: ${{ fromJSON((github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')) && '["dev","preprod","prod","dr"]' || '["dev","preprod"]') }}
-    runs-on: ubuntu-latest
-    environment: ${{ matrix.env }}
-    permissions:
-      contents: read
-      actions: write
-    steps:
-      - name: Checkout am-pipelines scripts
-        uses: actions/checkout@v4
-        with:
-          repository: AM-Portfolio/am-pipelines
-          path: am-pipelines-repo
-          ref: main
-          token: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-
-      - name: Resolve image tag
-        id: tag
-        env:
-          TAG_FROM_PUBLISH: ${{ needs.publish.outputs.image_tag }}
-        run: |
-          set -euo pipefail
-          TAG="${TAG_FROM_PUBLISH:-}"
-          if [[ -z "$TAG" ]]; then
-            echo "::error::No image tag from publish"
-            exit 1
-          fi
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-
-      - name: Contabo sync + wait (preprod — pin already on main)
-        if: |
-          matrix.env == 'preprod' &&
-          github.event_name == 'push' &&
-          (github.ref_name == 'main' || github.ref_name == 'master')
-        env:
-          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
-          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
-          INPUT_SERVICE_NAME: am-ai-gateway
-          INPUT_ENVIRONMENT: preprod
-          INPUT_IMAGE_TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          sleep 5
-          chmod +x am-pipelines-repo/scripts/ci/argo-api-lib.sh
-          chmod +x am-pipelines-repo/scripts/ci/argo-sync-and-wait.sh
-          am-pipelines-repo/scripts/ci/argo-sync-and-wait.sh
-
-      - name: Contabo pin + wait (preprod — feature / PR)
-        if: |
-          matrix.env == 'preprod' &&
-          (github.event_name != 'push' || (github.ref_name != 'main' && github.ref_name != 'master'))
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
-          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
-          INPUT_SERVICE_NAME: am-ai-gateway
-          INPUT_ENVIRONMENT: preprod
-          INPUT_IMAGE_TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          chmod +x am-pipelines-repo/scripts/ci/argo-api-lib.sh
-          chmod +x am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
-          am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
-
-      - name: Contabo pin + wait (dev)
-        if: matrix.env == 'dev'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
-          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
-          INPUT_SERVICE_NAME: am-ai-gateway
-          INPUT_ENVIRONMENT: ${{ matrix.env }}
-          INPUT_IMAGE_TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          chmod +x am-pipelines-repo/scripts/ci/argo-api-lib.sh
-          chmod +x am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
-          am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
-
-      - name: Contabo promote + wait (prod/dr)
-        if: matrix.env == 'prod' || matrix.env == 'dr'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
-          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
-          INPUT_SERVICE_NAME: am-ai-gateway
-          INPUT_ENVIRONMENT: ${{ matrix.env }}
-          INPUT_IMAGE_TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          chmod +x am-pipelines-repo/scripts/ci/argo-api-lib.sh
-          chmod +x am-pipelines-repo/scripts/ci/argo-promote-and-wait.sh
-          am-pipelines-repo/scripts/ci/argo-promote-and-wait.sh
