@@ -2,6 +2,7 @@
 
 Central dynamic API Gateway for the **AM Asset Management** platform.
 
+
 ## Architecture
 
 ```
