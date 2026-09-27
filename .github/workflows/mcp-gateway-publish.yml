@@ -1,5 +1,5 @@
-# Publish: security + build + GHCR.
-# main: Contabo Argo preprod auto (central); dev/prod/dr wait for GitHub Environment Approve then Contabo.
+# Publish: security + build + GHCR + preprod pin (central).
+# main Contabo (parallel): preprod auto; dev/prod/dr wait for GitHub Environment Approve.
 name: AI Gateway Publish
 
 on:
@@ -34,15 +34,52 @@ jobs:
       deploy_preprod: true
       gitops_write_preprod: true
       gitops_values_path: "mcp-gateway"
+      contabo_wait_preprod: false
     secrets: inherit
+
+  contabo-preprod:
+    name: Contabo Argo → preprod
+    needs: publish
+    if: |
+      always() &&
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
+      needs.publish.result != 'cancelled' &&
+      needs.publish.outputs.image_tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout am-pipelines scripts
+        uses: actions/checkout@v4
+        with:
+          repository: AM-Portfolio/am-pipelines
+          path: am-pipelines-repo
+          ref: main
+          token: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Sync + wait Contabo Healthy
+        env:
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          INPUT_SERVICE_NAME: am-ai-gateway
+          INPUT_ENVIRONMENT: preprod
+          INPUT_IMAGE_TAG: ${{ needs.publish.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          sleep 5
+          chmod +x am-pipelines-repo/scripts/ci/argo-api-lib.sh
+          chmod +x am-pipelines-repo/scripts/ci/argo-sync-and-wait.sh
+          am-pipelines-repo/scripts/ci/argo-sync-and-wait.sh
 
   contabo-approve:
     name: Contabo Argo → ${{ matrix.env }} (approve)
     needs: publish
     if: |
+      always() &&
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
-      needs.publish.result == 'success'
+      needs.publish.result != 'cancelled' &&
+      needs.publish.outputs.image_tag != ''
     strategy:
       fail-fast: false
       matrix:
@@ -64,22 +101,15 @@ jobs:
       - name: Resolve image tag
         id: tag
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
           TAG_FROM_PUBLISH: ${{ needs.publish.outputs.image_tag }}
         run: |
           set -euo pipefail
-          SVC=am-ai-gateway
           TAG="${TAG_FROM_PUBLISH:-}"
           if [[ -z "$TAG" ]]; then
-            RAW=$(gh api "repos/AM-Portfolio/am-gitops/contents/preprod/image-tags/${SVC}.yaml" -H "Accept: application/vnd.github.raw")
-            TAG=$(echo "$RAW" | sed -n 's/.*tag:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
-          fi
-          if [[ -z "$TAG" ]]; then
-            echo "::error::No image tag from publish or preprod pin"
+            echo "::error::No image tag from publish"
             exit 1
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "Resolved tag=${TAG} for Contabo ${{ matrix.env }}"
 
       - name: Deploy + verify Contabo (dev)
         if: matrix.env == 'dev'
