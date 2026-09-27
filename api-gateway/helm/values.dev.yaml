@@ -1,5 +1,6 @@
 # am-asrax-proxy — Dev Environment Overrides
 # Vault paths verified against vps_vault_full_backup_20260602_005102.json
+# canary: dig deploy via Traefik/argocd-dev.asrax.in (2026-09-28)
 
 environment: dev
 replicaCount: 1
