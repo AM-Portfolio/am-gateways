@@ -1,3 +1,5 @@
+# Publish only: security + build + GHCR. Contabo Argo auto-deploys preprod on main
+# (via central-build-publish). Other envs: Manual Deploy — AM API Gateway.
 name: API Gateway Publish
 
 on:
@@ -12,18 +14,6 @@ on:
       - "api-gateway/**"
       - ".github/workflows/api-gateway-publish.yml"
   workflow_dispatch:
-    inputs:
-      deploy_env:
-        description: "After build, Contabo Argo deploy to this env (none = pin preprod on main only)"
-        required: true
-        type: choice
-        default: none
-        options:
-          - none
-          - dev
-          - preprod
-          - prod
-          - dr
 
 jobs:
   publish:
@@ -39,65 +29,10 @@ jobs:
       build_context: "."
       preprod_namespace: "am-apps-preprod"
       prod_namespace: "am-apps-prod"
+      # Contabo Argo only — Helm deploy inputs are no-ops in central
       deploy_prod: false
+      deploy_dev: false
       deploy_preprod: true
       gitops_write_preprod: true
       gitops_values_path: "api-gateway"
     secrets: inherit
-
-  # Contabo Argo: pin + sync + wait Healthy/Synced (or fail). Prod/DR = promote PR only (exit failed).
-  argo-deploy:
-    name: Contabo Argo → ${{ github.event.inputs.deploy_env || 'none' }}
-    needs: publish
-    if: |
-      github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.deploy_env != 'none' &&
-      needs.publish.result == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: write
-    steps:
-      - name: Checkout am-pipelines scripts
-        if: github.event.inputs.deploy_env == 'dev' || github.event.inputs.deploy_env == 'preprod'
-        uses: actions/checkout@v4
-        with:
-          repository: AM-Portfolio/am-pipelines
-          path: am-pipelines-repo
-          ref: main
-          token: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-
-      - name: Deploy + verify Contabo (dev/preprod)
-        if: github.event.inputs.deploy_env == 'dev' || github.event.inputs.deploy_env == 'preprod'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
-          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
-          INPUT_SERVICE_NAME: am-api-gateway
-          INPUT_ENVIRONMENT: ${{ github.event.inputs.deploy_env }}
-          INPUT_IMAGE_TAG: ${{ needs.publish.outputs.image_tag }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${INPUT_IMAGE_TAG:-}" ]]; then
-            echo "::error::No image_tag from publish job"
-            exit 1
-          fi
-          chmod +x am-pipelines-repo/scripts/ci/argo-api-lib.sh
-          chmod +x am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
-          am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
-
-      - name: Prod/DR require promote (do not mark deploy success)
-        if: github.event.inputs.deploy_env == 'prod' || github.event.inputs.deploy_env == 'dr'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-          ENV: ${{ github.event.inputs.deploy_env }}
-        run: |
-          set -euo pipefail
-          SVC=am-api-gateway
-          if [[ "$ENV" == "prod" ]]; then
-            gh workflow run promote-to-prod.yml -R AM-Portfolio/am-gitops -f service="$SVC"
-          else
-            gh workflow run promote-to-dr.yml -R AM-Portfolio/am-gitops -f service="$SVC"
-          fi
-          echo "::error::Promote PR opened for ${SVC} ${ENV}. Publish does not auto-merge or verify prod/DR."
-          exit 1

@@ -1,5 +1,6 @@
-# Manual Contabo Argo deploy — waits until app is Healthy/Synced or FAILS the job.
-# Prod/DR: does not auto-deploy (opens promote PR and exits failed so status is not green).
+# Manual Contabo Argo deploy for all 4 envs — waits Healthy/Synced or FAILS.
+# preprod also auto-deploys on main merge via Publish; use this to re-roll or pin a tag.
+# prod/dr: opens promote PR, waits for human merge, then Contabo sync+wait.
 name: Manual Deploy — AM API Gateway
 
 on:
@@ -11,7 +12,7 @@ on:
         type: string
         default: ""
       environment:
-        description: "Target Environment"
+        description: "Target Environment (Contabo Argo only)"
         required: true
         default: "dev"
         type: choice
@@ -73,19 +74,17 @@ jobs:
           chmod +x am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
           am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
 
-      - name: Prod/DR require promote (do not mark deploy success)
+      - name: Promote + verify Contabo (prod/dr)
         if: inputs.environment == 'prod' || inputs.environment == 'dr'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-          ENV: ${{ inputs.environment }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          INPUT_SERVICE_NAME: am-api-gateway
+          INPUT_ENVIRONMENT: ${{ inputs.environment }}
+          INPUT_IMAGE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          SVC=am-api-gateway
-          if [[ "$ENV" == "prod" ]]; then
-            gh workflow run promote-to-prod.yml -R AM-Portfolio/am-gitops -f service="$SVC"
-          else
-            gh workflow run promote-to-dr.yml -R AM-Portfolio/am-gitops -f service="$SVC"
-          fi
-          echo "::error::Promote PR opened for ${SVC} ${ENV}. Manual Deploy does not auto-merge or verify prod/DR."
-          echo "::error::Human-merge the promote PR, then Contabo argo-sync-on-tags deploys. Re-check Argo UI."
-          exit 1
+          chmod +x am-pipelines-repo/scripts/ci/argo-api-lib.sh
+          chmod +x am-pipelines-repo/scripts/ci/argo-promote-and-wait.sh
+          am-pipelines-repo/scripts/ci/argo-promote-and-wait.sh
