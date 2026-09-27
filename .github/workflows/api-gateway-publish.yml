@@ -1,5 +1,5 @@
-# Publish: security + build + GHCR + preprod pin (central).
-# main Contabo (parallel): preprod auto; dev/prod/dr wait for GitHub Environment Approve.
+# Publish: security + build + GHCR + preprod pin (central, no Contabo wait).
+# main: Contabo dev / preprod / prod / dr in parallel — each waits for GitHub Environment Approve.
 name: API Gateway Publish
 
 on:
@@ -37,42 +37,7 @@ jobs:
       contabo_wait_preprod: false
     secrets: inherit
 
-  # Parallel Contabo: preprod auto (no Environment gate)
-  contabo-preprod:
-    name: Contabo Argo → preprod
-    needs: publish
-    if: |
-      always() &&
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
-      needs.publish.result != 'cancelled' &&
-      needs.publish.outputs.image_tag != ''
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout am-pipelines scripts
-        uses: actions/checkout@v4
-        with:
-          repository: AM-Portfolio/am-pipelines
-          path: am-pipelines-repo
-          ref: main
-          token: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-      - name: Sync + wait Contabo Healthy
-        env:
-          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
-          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
-          INPUT_SERVICE_NAME: am-api-gateway
-          INPUT_ENVIRONMENT: preprod
-          INPUT_IMAGE_TAG: ${{ needs.publish.outputs.image_tag }}
-        run: |
-          set -euo pipefail
-          sleep 5
-          chmod +x am-pipelines-repo/scripts/ci/argo-api-lib.sh
-          chmod +x am-pipelines-repo/scripts/ci/argo-sync-and-wait.sh
-          am-pipelines-repo/scripts/ci/argo-sync-and-wait.sh
-
-  # Parallel Contabo: dev/prod/dr wait for Environment Approve
+  # All four Contabo envs parallel after build+pin; each needs Environment Approve
   contabo-approve:
     name: Contabo Argo → ${{ matrix.env }} (approve)
     needs: publish
@@ -85,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [dev, prod, dr]
+        env: [dev, preprod, prod, dr]
     runs-on: ubuntu-latest
     environment: ${{ matrix.env }}
     permissions:
@@ -113,7 +78,22 @@ jobs:
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy + verify Contabo (dev)
+      - name: Contabo sync + wait (preprod — pin already on main)
+        if: matrix.env == 'preprod'
+        env:
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          INPUT_SERVICE_NAME: am-api-gateway
+          INPUT_ENVIRONMENT: preprod
+          INPUT_IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          sleep 5
+          chmod +x am-pipelines-repo/scripts/ci/argo-api-lib.sh
+          chmod +x am-pipelines-repo/scripts/ci/argo-sync-and-wait.sh
+          am-pipelines-repo/scripts/ci/argo-sync-and-wait.sh
+
+      - name: Contabo pin + wait (dev)
         if: matrix.env == 'dev'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
@@ -128,7 +108,7 @@ jobs:
           chmod +x am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
           am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
 
-      - name: Promote + verify Contabo (prod/dr)
+      - name: Contabo promote + wait (prod/dr)
         if: matrix.env == 'prod' || matrix.env == 'dr'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
