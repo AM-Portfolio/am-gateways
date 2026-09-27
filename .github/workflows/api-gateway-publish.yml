@@ -1,5 +1,6 @@
-# Publish: security + build + GHCR (+ preprod pin on main).
-# main: Contabo dev/preprod/prod/dr Approve. Feature/fix/hotfix/develop: dev+preprod Approve only.
+# Publish: security + build + GHCR (+ preprod pin on main). One Build only (central).
+# main push: Contabo dev/preprod/prod/dr Approve.
+# feature/fix/hotfix/develop push or PR: Contabo dev+preprod Approve only (no second build).
 name: API Gateway Publish
 
 on:
@@ -40,23 +41,24 @@ jobs:
   contabo-approve:
     name: Contabo Argo → ${{ matrix.env }} (approve)
     needs: publish
+    # push or PR; main = all four envs; feature/fix/hotfix/develop = DEV+preprod only.
+    # Use head_ref||ref_name so PRs (refs/pull/N/merge) still resolve the feature branch.
     if: |
       always() &&
-      github.event_name == 'push' &&
-      (
-        github.ref == 'refs/heads/main' ||
-        github.ref == 'refs/heads/master' ||
-        github.ref == 'refs/heads/develop' ||
-        startsWith(github.ref, 'refs/heads/feature/') ||
-        startsWith(github.ref, 'refs/heads/fix/') ||
-        startsWith(github.ref, 'refs/heads/hotfix/')
-      ) &&
+      (github.event_name == 'push' || github.event_name == 'pull_request') &&
       needs.publish.result != 'cancelled' &&
-      needs.publish.outputs.image_tag != ''
+      needs.publish.outputs.image_tag != '' &&
+      (
+        (github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')) ||
+        (github.head_ref || github.ref_name) == 'develop' ||
+        startsWith(github.head_ref || github.ref_name, 'feature/') ||
+        startsWith(github.head_ref || github.ref_name, 'fix/') ||
+        startsWith(github.head_ref || github.ref_name, 'hotfix/')
+      )
     strategy:
       fail-fast: false
       matrix:
-        env: ${{ fromJSON((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && '["dev","preprod","prod","dr"]' || '["dev","preprod"]') }}
+        env: ${{ fromJSON((github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'master')) && '["dev","preprod","prod","dr"]' || '["dev","preprod"]') }}
     runs-on: ubuntu-latest
     environment: ${{ matrix.env }}
     permissions:
@@ -84,11 +86,11 @@ jobs:
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-      # main: pin already written by central — sync only
       - name: Contabo sync + wait (preprod — pin already on main)
         if: |
           matrix.env == 'preprod' &&
-          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+          github.event_name == 'push' &&
+          (github.ref_name == 'main' || github.ref_name == 'master')
         env:
           ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
           ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
@@ -102,12 +104,10 @@ jobs:
           chmod +x am-pipelines-repo/scripts/ci/argo-sync-and-wait.sh
           am-pipelines-repo/scripts/ci/argo-sync-and-wait.sh
 
-      # feature/fix/hotfix/develop: pin this build's tag then Contabo wait
-      - name: Contabo pin + wait (preprod — feature branch)
+      - name: Contabo pin + wait (preprod — feature / PR)
         if: |
           matrix.env == 'preprod' &&
-          github.ref != 'refs/heads/main' &&
-          github.ref != 'refs/heads/master'
+          (github.event_name != 'push' || (github.ref_name != 'main' && github.ref_name != 'master'))
         env:
           GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
           ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
