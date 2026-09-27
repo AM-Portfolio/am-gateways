@@ -1,3 +1,4 @@
+# Manual Contabo Argo deploy — waits until Healthy/Synced or FAILS.
 name: Manual Deploy — AM AI Gateway
 
 on:
@@ -28,11 +29,19 @@ jobs:
     name: Contabo Argo → ${{ inputs.environment }}
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve tag + pin/promote
+      - name: Checkout am-pipelines scripts
+        uses: actions/checkout@v4
+        with:
+          repository: AM-Portfolio/am-pipelines
+          path: am-pipelines-repo
+          ref: main
+          token: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Resolve tag
+        id: tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
           TAG_IN: ${{ inputs.image_tag }}
-          ENV: ${{ inputs.environment }}
         run: |
           set -euo pipefail
           SVC=am-ai-gateway
@@ -46,18 +55,36 @@ jobs:
             echo "::error::No image tag — pass image_tag or ensure preprod pin exists"
             exit 1
           fi
-          case "$ENV" in
-            dev|preprod)
-              gh workflow run set-image-tag.yml -R AM-Portfolio/am-gitops \
-                -f service="$SVC" -f env="$ENV" -f tag="$TAG"
-              echo "::notice::OK Contabo will sync ${SVC}-${ENV} to tag=${TAG}"
-              ;;
-            prod)
-              gh workflow run promote-to-prod.yml -R AM-Portfolio/am-gitops -f service="$SVC"
-              echo "::notice::Promote PR opened — human-merge for Contabo prod sync"
-              ;;
-            dr)
-              gh workflow run promote-to-dr.yml -R AM-Portfolio/am-gitops -f service="$SVC"
-              echo "::notice::Promote-to-dr opened — human-merge for Contabo DR sync"
-              ;;
-          esac
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy + verify Contabo (dev/preprod)
+        if: inputs.environment == 'dev' || inputs.environment == 'preprod'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          INPUT_SERVICE_NAME: am-ai-gateway
+          INPUT_ENVIRONMENT: ${{ inputs.environment }}
+          INPUT_IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          chmod +x am-pipelines-repo/scripts/ci/argo-api-lib.sh
+          chmod +x am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
+          am-pipelines-repo/scripts/ci/argo-pin-and-wait.sh
+
+      - name: Prod/DR require promote (do not mark deploy success)
+        if: inputs.environment == 'prod' || inputs.environment == 'dr'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          ENV: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          SVC=am-ai-gateway
+          if [[ "$ENV" == "prod" ]]; then
+            gh workflow run promote-to-prod.yml -R AM-Portfolio/am-gitops -f service="$SVC"
+          else
+            gh workflow run promote-to-dr.yml -R AM-Portfolio/am-gitops -f service="$SVC"
+          fi
+          echo "::error::Promote PR opened for ${SVC} ${ENV}. Manual Deploy does not auto-merge or verify prod/DR."
+          echo "::error::Human-merge the promote PR, then Contabo argo-sync-on-tags deploys. Re-check Argo UI."
+          exit 1
