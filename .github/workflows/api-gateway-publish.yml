@@ -25,6 +25,8 @@ jobs:
     with:
       language: "python"
       working_directory: "api-gateway"
+      # Contabo Argo app name stays am-api-gateway-*; GHCR uses repo-scoped path (write_package pilot).
       image_name: "am-api-gateway"
+      ghcr_image_name: "am-gateways/am-api-gateway"
       build_context: "."
     secrets: inherit
