@@ -22,7 +22,8 @@ global:
     serviceAccountName: "am-backend-sa"
 
 image:
-  repository: am-api-gateway
+  # Must match Contabo CI push path: ghcr.io/am-portfolio/<git-repo>/<image_name>
+  repository: am-gateways/am-api-gateway
 
 port: 8080
 language: python
