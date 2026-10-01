@@ -26,5 +26,6 @@ jobs:
       language: "python"
       working_directory: "mcp-gateway"
       image_name: "am-ai-gateway"
+      pipelines_ref: "main"
       build_context: "."
     secrets: inherit

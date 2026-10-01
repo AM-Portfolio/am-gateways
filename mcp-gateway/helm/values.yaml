@@ -12,7 +12,8 @@ fullnameOverride: am-ai-gateway
 nameOverride: am-ai-gateway
 
 image:
-  repository: am-ai-gateway
+  # Must match Contabo CI push path: ghcr.io/am-portfolio/<git-repo>/<image_name>
+  repository: am-gateways/am-ai-gateway
 
 replicaCount: 1
 language: python
