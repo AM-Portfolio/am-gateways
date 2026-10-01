@@ -21,11 +21,11 @@ jobs:
     permissions:
       contents: write
       packages: write
-    uses: AM-Portfolio/am-pipelines/.github/workflows/central-build-publish-contabo.yml@fix/contabo-stamp-env-secrets
+    uses: AM-Portfolio/am-pipelines/.github/workflows/central-build-publish-contabo.yml@main
     with:
       language: "python"
       working_directory: "api-gateway"
       image_name: "am-api-gateway"
-      pipelines_ref: "fix/contabo-stamp-env-secrets"
+      pipelines_ref: "main"
       build_context: "."
     secrets: inherit
