@@ -71,6 +71,7 @@ CORS_ORIGINS = [
 
 app = FastAPI(
     title="AM AI Gateway",
+    root_path="/ai",
     description="Unified edge API gateway for conversational AI, portfolio agents, and MCP tools",
     version="1.0.0",
 )
