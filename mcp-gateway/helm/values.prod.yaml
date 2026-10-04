@@ -24,8 +24,8 @@ ingress:
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
     traefik.ingress.kubernetes.io/router.priority: "1000"
     traefik.ingress.kubernetes.io/router.middlewares: >-
-      am-apps-prod-global-cors@kubernetescrd,
-      am-apps-prod-strip-prefix-apps@kubernetescrd
+      am-agents-prod-global-cors@kubernetescrd,
+      am-agents-prod-strip-prefix-apps@kubernetescrd
   hosts:
     - host: am.asrax.in
       paths:
