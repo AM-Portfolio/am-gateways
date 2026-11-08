@@ -45,13 +45,16 @@ from core.config import settings
 from core.security_headers import SecurityHeadersMiddleware
 from middleware.rate_limiter import RateLimiterMiddleware
 
+# Observable rebuild marker for Contabo dig Approve pilot (VPS am-dev-apps).
+APP_VERSION = "2.1.1-dev-vps-pilot-1"
+
 app = FastAPI(
     title="AM API Gateway",
     description=(
         "Central Dynamic API Gateway for all AM Asset Management microservices. "
         "Routes /am/{service}/{path} without any hardcoded per-service router files."
     ),
-    version="2.1.0",
+    version=APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -144,7 +147,7 @@ async def health_check():
     body: dict = {
         "status": "healthy",
         "service": "AM API Gateway",
-        "version": "2.1.0",
+        "version": APP_VERSION,
         "timestamp": time.time(),
     }
     # Fix 11: never expose internal service topology in production
@@ -158,7 +161,7 @@ async def health_check():
 async def root():
     return {
         "service": "AM API Gateway",
-        "version": "2.1.0",
+        "version": APP_VERSION,
         "description": "Dynamic central gateway — all routes via /am/{service}/{path}",
         "docs": "/docs",
     }
