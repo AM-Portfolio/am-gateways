@@ -121,6 +121,12 @@ SERVICES_REGISTRY: dict[str, dict] = {
         "permissions": ["analysis:read"],
         "direct_prefixes": ["analysis"],
     },
+    "mf": {
+        "url": os.getenv("MF_SERVICE_URL", "http://am-mutual-fund-dev:8080"),
+        "service_id": "am-mutual-fund",
+        "permissions": ["mf:read", "mf:write"],
+        "direct_prefixes": ["mf"],
+    },
 }
 
 # Build a flat prefix → service_name lookup at startup (O(1) dispatch)

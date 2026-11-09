@@ -75,3 +75,5 @@ env:
   SUBSCRIPTION_SERVICE_URL: "http://am-subscription:8080"
   NOTIFICATION_SERVICE_URL: "http://am-notification:8080"
   ANALYSIS_SERVICE_URL: "http://am-analysis:8080"
+  # Dig Contabo Services use *-dev DNS (see am-gitops overlays / Argo inline).
+  MF_SERVICE_URL: "http://am-mutual-fund-dev:8080"
