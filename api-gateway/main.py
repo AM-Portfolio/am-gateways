@@ -71,7 +71,15 @@ app.add_middleware(
     allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Trace-ID"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Request-ID",
+        "X-Trace-ID",
+        "Idempotency-Key",
+        "X-User-Id",
+        "X-User-ID",
+    ],
 )
 
 # ─── Dynamic Service Registry ────────────────────────────────────────────────
@@ -228,17 +236,46 @@ async def dynamic_proxy(
             extra={"user_id": current_user.user_id, "service": service_name},
         )
 
+        downstream_headers = {
+            "Authorization": f"Bearer {service_token}",
+            "X-User-ID": str(current_user.user_id),
+            "X-User-Email": str(current_user.email or ""),
+            "X-Gateway-Version": "2.1",
+            "Content-Type": request.headers.get("content-type", "application/json"),
+        }
+        # Forward client correlation / idempotency headers (MF requires Idempotency-Key)
+        for _hdr in ("Idempotency-Key", "X-Request-ID", "X-Trace-ID"):
+            _val = request.headers.get(_hdr)
+            if _val:
+                downstream_headers[_hdr] = _val
+        # So MF (and peers) can reject spoofed X-User-ID when secret is configured.
+        # Prefer env (envFrom synced secret); fall back to Vault CSI object filenames.
+        _gw_secret = os.getenv("INTERNAL_GATEWAY_SECRET", "").strip()
+        if not _gw_secret:
+            for _path in (
+                "/mnt/secrets-store/proxy_INTERNAL_GATEWAY_SECRET",
+                "/mnt/secrets-store/INTERNAL_GATEWAY_SECRET",
+                "/mnt/secrets-store/gateway_INTERNAL_GATEWAY_SECRET",
+            ):
+                try:
+                    with open(_path, "r", encoding="utf-8") as _fh:
+                        _gw_secret = _fh.read().strip()
+                except OSError:
+                    continue
+                if _gw_secret:
+                    break
+        if _gw_secret:
+            downstream_headers["X-Gateway-Secret"] = _gw_secret
+        else:
+            logger.error(
+                "[PROXY] INTERNAL_GATEWAY_SECRET missing — downstream will reject X-User-ID"
+            )
+
         async with httpx.AsyncClient(timeout=settings.LONG_TIMEOUT) as client:
             response = await client.request(
                 method=request.method,
                 url=target_url,
-                headers={
-                    "Authorization": f"Bearer {service_token}",
-                    "X-User-ID": str(current_user.user_id),
-                    "X-User-Email": str(current_user.email or ""),
-                    "X-Gateway-Version": "2.1",
-                    "Content-Type": request.headers.get("content-type", "application/json"),
-                },
+                headers=downstream_headers,
                 content=body,
                 params=request.query_params,
             )
